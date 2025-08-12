@@ -1,0 +1,5 @@
+{
+  "SkipUniqueNpcs": true,
+  "UseRandomization": true,
+  "RandomizationChance": 50
+}
