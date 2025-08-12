@@ -8,7 +8,6 @@ namespace VoicesofTamrielPatcher
     {
         public static async Task<int> Main(string[] args)
         {
-            // This is the standard entry point for a Synthesis Patcher.
             return await SynthesisPipeline.Instance
                 .AddPatch<ISkyrimMod, ISkyrimModGetter>(RunPatch)
                 .SetTypicalOpen(GameRelease.SkyrimSE, "vot_patcher.esp")
@@ -23,9 +22,24 @@ namespace VoicesofTamrielPatcher
             // Value: A list of EditorIDs for the voices you want to randomly assign for that key.
             var voiceMappings = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase)
             {
-                { "MaleCommoner", new List<string> { "VOT_MaleCommoner01", "VOT_MaleCommoner02" } },
-                { "FemaleCommoner", new List<string> { "VOT_FemaleCommoner01", "VOT_FemaleCommoner02" } }
-                // Add more mappings here as needed, e.g.:
+                // Male voices
+                { "MaleCommoner", new List<string> { "VOT_MaleCommoner01" } },
+                { "MaleDarkElf", new List<string> { "VOT_MaleDarkElf01" } },
+                // { "MaleCommonerAccented", new List<string> { "VOT_MaleCommonerAccented01", "VOT_MaleCommonerAccented02" } },
+                // { "MaleKhajiit", new List<string> { "VOT_MaleKhajiit01" } },
+                // { "MaleArgonian", new List<string> { "VOT_MaleArgonian01" } },
+                // { "MaleOrc", new List<string> { "VOT_MaleOrc01", "VOT_MaleOrc02" } },
+                // { "MaleNord", new List<string> { "VOT_MaleNord01", "VOT_MaleNord02" } },
+                // { "MaleBandit", new List<string> { "VOT_MaleBandit01", "VOT_MaleBandit02" } },
+                // Female voices
+                // { "FemaleCommoner", new List<string> { "VOT_FemaleCommoner01", "VOT_FemaleCommoner02" } },
+                // { "FemaleArgonian", new List<string> { "VOT_FemaleArgonian01" } },
+                { "FemaleNord", new List<string> { "VOT_FemaleNord02" } },
+                { "FemaleDarkElf", new List<string> { "VOT_FemaleDarkElf01" } },
+                // { "FemaleBandit", new List<string> { "VOT_FemaleBandit01", "VOT_FemaleBandit02" } },
+                // { "FemaleKhajiit", new List<string> { "VOT_FemaleKhajiit01"} },
+                // { "FemaleOrc", new List<string> { "VOT_FemaleOrc01", "VOT_FemaleOrc02" } },
+                // Add more mappings here as needed
             };
             // --- End of Configuration ---
 
@@ -34,7 +48,6 @@ namespace VoicesofTamrielPatcher
             int keptNpcCount = 0;
 
             // Step 1: Resolve all target voice strings into actual voice records upfront.
-            // This is much more efficient than looking them up repeatedly inside the loop.
             var resolvedVoiceMappings = new Dictionary<string, List<IVoiceTypeGetter>>(StringComparer.OrdinalIgnoreCase);
             
             Console.WriteLine("Resolving voice mappings...");
@@ -79,13 +92,28 @@ namespace VoicesofTamrielPatcher
                 {
                     continue;
                 }
+                
+                // // Skip NPCs from DLCs (Dawnguard, Hearthfire, Dragonborn)
+                // if (npc.FormKey.ModKey.ToString().StartsWith("Dawnguard", StringComparison.OrdinalIgnoreCase) ||
+                //     npc.FormKey.ModKey.ToString().StartsWith("HearthFires", StringComparison.OrdinalIgnoreCase) ||
+                //     npc.FormKey.ModKey.ToString().StartsWith("Dragonborn", StringComparison.OrdinalIgnoreCase))
+                // {
+                //     continue;
+                // }
+                
+                // Skip Creation Club content (EditorID starts with "cc" or "DLC")
+                if (npc.EditorID != null && 
+                    (npc.EditorID.StartsWith("cc", StringComparison.OrdinalIgnoreCase) ||
+                     npc.EditorID.StartsWith("DLC", StringComparison.OrdinalIgnoreCase)))
+                {
+                    continue;
+                }
 
                 if (state.LinkCache.TryResolve<IVoiceTypeGetter>(npc.Voice.FormKey, out var currentVoice))
                 {
                     // Check if the NPC's current voice is one of our source voices (a key in our dictionary).
                     if (currentVoice.EditorID != null && resolvedVoiceMappings.TryGetValue(currentVoice.EditorID, out var availableTargets))
                     {
-                        // We found a match! Now use the specific list of targets for this source voice.
                         int choice = random.Next(0, availableTargets.Count + 1);
 
                         if (choice == 0)
