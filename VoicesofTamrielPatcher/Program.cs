@@ -45,9 +45,11 @@ namespace VoicesofTamrielPatcher
             {
                 // Male voices
                 { "MaleCommoner", new List<string> { "VOT_MaleCommoner01" } },
+                { "MaleCommonerAccented", new List<string> { "VOT_MaleCommonerAccented01" } },
                 { "MaleDarkElf", new List<string> { "VOT_MaleDarkElf01" } },
                 { "MaleBrute", new List<string> { "VOT_MaleBrute01" }},
-                // { "MaleCommonerAccented", new List<string> { "VOT_MaleCommonerAccented01", "VOT_MaleCommonerAccented02" } },
+                { "MaleEventoned", new List<string> { "VOT_MaleEventoned01" } },
+                { "MaleEventonedAccented", new List<string> { "VOT_MaleEventonedAccented01" } },
                 // { "MaleKhajiit", new List<string> { "VOT_MaleKhajiit01" } },
                 // { "MaleArgonian", new List<string> { "VOT_MaleArgonian01" } },
                 // { "MaleOrc", new List<string> { "VOT_MaleOrc01", "VOT_MaleOrc02" } },
@@ -61,7 +63,6 @@ namespace VoicesofTamrielPatcher
                 // { "FemaleBandit", new List<string> { "VOT_FemaleBandit01", "VOT_FemaleBandit02" } },
                 // { "FemaleKhajiit", new List<string> { "VOT_FemaleKhajiit01"} },
                 // { "FemaleOrc", new List<string> { "VOT_FemaleOrc01", "VOT_FemaleOrc02" } },
-                // Add more mappings here as needed
             };
             // --- End of Configuration ---
 
