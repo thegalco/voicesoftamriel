@@ -2,7 +2,7 @@ using Mutagen.Bethesda;
 using Mutagen.Bethesda.Synthesis;
 using Mutagen.Bethesda.Skyrim;
 
-namespace VoiceChanger
+namespace VoicesofTamrielPatcher
 {
     public class Program
     {
@@ -15,7 +15,7 @@ namespace VoiceChanger
                 .Run(args);
         }
 
-        public static void RunPatch(IPatcherState<ISkyrimMod, ISkyrimModGetter> state)
+        private static void RunPatch(IPatcherState<ISkyrimMod, ISkyrimModGetter> state)
         {
             // --- Configuration ---
             // A dictionary that maps a source voice to a list of potential target voices.
@@ -73,6 +73,12 @@ namespace VoiceChanger
             foreach (var npc in state.LoadOrder.PriorityOrder.Npc().WinningOverrides())
             {
                 if (npc.Voice.IsNull) continue;
+                
+                // Skip NPCs with the Unique flag
+                if (npc.Configuration.Flags.HasFlag(NpcConfiguration.Flag.Unique))
+                {
+                    continue;
+                }
 
                 if (state.LinkCache.TryResolve<IVoiceTypeGetter>(npc.Voice.FormKey, out var currentVoice))
                 {

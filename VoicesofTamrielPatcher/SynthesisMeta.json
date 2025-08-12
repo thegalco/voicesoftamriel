@@ -1,12 +1,13 @@
 {
   "Nickname": "VoicesofTamrielPatcher",
   "Visibility": "Visible",
-  "OneLineDescription": "",
-  "LongDescription": "",
+  "OneLineDescription": "Patch your load order to integrate Voices of Tamriel",
+  "LongDescription": "This patcher will iterate your entire load order and pseudo-randomly mix in voices from my mod Voices of Tamriel. Unique NPCs are skipped to maintain compatibility with both VOT and as many other mods as possible.\r\n\r\nNote: This will NOT replace every vanilla voice type with ones from VOT. That is by design. You will still hear vanilla voices, just not from every single NPC :)",
   "PreferredAutoVersioning": "Default",
-  "RequiredMods": [],
+  "RequiredMods": [
+    "VoicesOfTamriel.esp"
+  ],
   "TargetedReleases": [
-    "SkyrimSE",
-    "Starfield"
+    "SkyrimSE"
   ]
 }
