@@ -161,14 +161,17 @@ namespace VoicesofTamrielPatcher
                 }
             }
             
-            // Step 3: Patch supported mods if enabled
+            // Step 3: Patch vanilla dialogue topics
+            PatchVanillaDialogue(state, resolvedVoiceMappings);
+            
+            // Step 4: Patch supported mods if enabled
             if (Settings.Value.PatchSupportedMods)
             {
                 Console.WriteLine("\nChecking for supported mods to patch...");
                 PatchLinesExpansions(state, resolvedVoiceMappings);
             }
             
-            // Step 4: Print the final summary.
+            // Step 5: Print the final summary.
             Console.WriteLine("\n--- Voice Patcher Summary ---");
             Console.WriteLine($"Total NPCs patched: {patchedNpcCount}");
             Console.WriteLine($"Total NPCs kept with original voice: {keptNpcCount}");
@@ -179,6 +182,147 @@ namespace VoicesofTamrielPatcher
         {
             return state.LoadOrder.Any(mod => 
                 string.Equals(mod.Value.ModKey.FileName.String, modName, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static void PatchDialogueTopic(
+            IPatcherState<ISkyrimMod, ISkyrimModGetter> state,
+            IDialogTopicGetter dialogTopic,
+            Dictionary<string, List<IVoiceTypeGetter>> resolvedVoiceMappings)
+        {
+            bool topicModified = false;
+            DialogTopic? topicOverride = null;
+            
+            int responseIndex = 0;
+            foreach (var response in dialogTopic.Responses)
+            {
+                bool responseNeedsPatching = false;
+                List<(IConditionGetter condition, string voiceEditorId, List<IVoiceTypeGetter> votVoices)> conditionsToPatch = new();
+                
+                // First pass: identify conditions that need patching
+                foreach (var condition in response.Conditions)
+                {
+                    if (condition.Data is IGetIsVoiceTypeConditionDataGetter voiceCondition)
+                    {
+                        // Try to resolve the voice type being checked
+                        if (state.LinkCache.TryResolve<IVoiceTypeGetter>(voiceCondition.VoiceTypeOrList.Link.FormKey, out var checkedVoice) && 
+                            checkedVoice.EditorID != null)
+                        {
+                            if (resolvedVoiceMappings.TryGetValue(checkedVoice.EditorID, out var votVoices))
+                            {
+                                // This condition checks for a voice type we're patching - store ALL VOT voices
+                                conditionsToPatch.Add((condition, checkedVoice.EditorID, votVoices));
+                                responseNeedsPatching = true;
+                            }
+                        }
+                    }
+                }
+                
+                // Second pass: add VOT voice conditions if needed
+                if (responseNeedsPatching)
+                {
+                    if (!topicModified)
+                    {
+                        topicOverride = state.PatchMod.DialogTopics.GetOrAddAsOverride(dialogTopic);
+                        topicModified = true;
+                        
+                        // GetOrAddAsOverride creates an empty override, so we need to copy the responses
+                        if (topicOverride.Responses.Count == 0 && dialogTopic.Responses.Count > 0)
+                        {
+                            foreach (var resp in dialogTopic.Responses)
+                            {
+                                topicOverride.Responses.Add(resp.DeepCopy());
+                            }
+                        }
+                    }
+                    
+                    // Get the response to modify from our override
+                    if (responseIndex < topicOverride!.Responses.Count)
+                    {
+                        var responseToModify = topicOverride.Responses[responseIndex];
+                        
+                        // Add new conditions for ALL VOT voice variants
+                        foreach (var (originalCondition, voiceEditorId, votVoices) in conditionsToPatch)
+                        {
+                            int insertIndex = -1;
+                            for (int i = responseToModify.Conditions.Count - 1; i >= 0; i--)
+                            {
+                                if (responseToModify.Conditions[i].Data is IGetIsVoiceTypeConditionDataGetter vc)
+                                {
+                                    if (state.LinkCache.TryResolve<IVoiceTypeGetter>(vc.VoiceTypeOrList.Link.FormKey, out var v) &&
+                                        v.EditorID == voiceEditorId)
+                                    {
+                                        insertIndex = i + 1;
+                                        break;
+                                    }
+                                }
+                            }
+                            
+                            if (insertIndex >= 0)
+                            {
+                                foreach (var votVoice in votVoices)
+                                {
+                                    var newCondition = new ConditionFloat();
+                                    newCondition.CompareOperator = originalCondition.CompareOperator;
+                                    newCondition.Flags = originalCondition.Flags | Condition.Flag.OR;
+                                    newCondition.ComparisonValue = 1.0f;
+                                    
+                                    // Set up the GetIsVoiceType condition data
+                                    var voiceConditionData = new GetIsVoiceTypeConditionData();
+                                    voiceConditionData.VoiceTypeOrList.Link.SetTo(votVoice);
+                                    voiceConditionData.RunOnType = (originalCondition.Data as IGetIsVoiceTypeConditionDataGetter)?.RunOnType ?? Condition.RunOnType.Subject;
+                                    newCondition.Data = voiceConditionData;
+                                    
+                                    responseToModify.Conditions.Insert(insertIndex, newCondition);
+                                    insertIndex++;
+                                }
+                            }
+                            else
+                            {
+                                Console.WriteLine($"   -> WARNING: Could not find original condition for {voiceEditorId} in response");
+                            }
+                        }
+                    }
+                    else
+                    {
+                        Console.WriteLine($"   -> WARNING: Response index {responseIndex} out of bounds for override with {topicOverride!.Responses.Count} responses");
+                    }
+                }
+                
+                responseIndex++;
+            }
+        }
+
+        private static void PatchVanillaDialogue(
+            IPatcherState<ISkyrimMod, ISkyrimModGetter> state,
+            Dictionary<string, List<IVoiceTypeGetter>> resolvedVoiceMappings)
+        {
+            Console.WriteLine("\nPatching vanilla Skyrim.esm dialogue...");
+            
+            int topicsPatched = 0;
+            foreach (var dialogTopic in state.LoadOrder.PriorityOrder.DialogTopic().WinningOverrides())
+            {
+                // Check if this dialog topic belongs to Skyrim.esm
+                if (dialogTopic.FormKey.ModKey.FileName.String.Equals("Skyrim.esm", StringComparison.OrdinalIgnoreCase))
+                {
+                    var beforeResponseCount = state.PatchMod.DialogTopics.Count;
+                    PatchDialogueTopic(state, dialogTopic, resolvedVoiceMappings);
+                    
+                    // Check if this topic was actually patched
+                    if (state.PatchMod.DialogTopics.Count > beforeResponseCount)
+                    {
+                        topicsPatched++;
+                    }
+                }
+            }
+            
+            if (topicsPatched > 0)
+            {
+                Console.WriteLine($" -> Patched {topicsPatched} vanilla dialogue topic(s) with VOT voice conditions.");
+            }
+            else
+            {
+                Console.WriteLine(" -> No vanilla dialogue topics needed patching.");
+            }
         }
 
         private static void PatchLinesExpansions(
@@ -211,107 +355,7 @@ namespace VoicesofTamrielPatcher
                 // Check if this dialog topic belongs to any of the mods we're processing
                 if (modsToProcess.Any(mod => dialogTopic.FormKey.ModKey.FileName.String.Equals(mod, StringComparison.OrdinalIgnoreCase)))
                 {
-                    bool topicModified = false;
-                    DialogTopic? topicOverride = null;
-                    
-                    int responseIndex = 0;
-                    foreach (var response in dialogTopic.Responses)
-                    {
-                        bool responseNeedsPatching = false;
-                        List<(IConditionGetter condition, string voiceEditorId, List<IVoiceTypeGetter> votVoices)> conditionsToPatch = new();
-                        
-                        // First pass: identify conditions that need patching
-                        foreach (var condition in response.Conditions)
-                        {
-                            if (condition.Data is IGetIsVoiceTypeConditionDataGetter voiceCondition)
-                            {
-                                // Try to resolve the voice type being checked
-                                if (state.LinkCache.TryResolve<IVoiceTypeGetter>(voiceCondition.VoiceTypeOrList.Link.FormKey, out var checkedVoice) && 
-                                    checkedVoice.EditorID != null)
-                                {
-                                    if (resolvedVoiceMappings.TryGetValue(checkedVoice.EditorID, out var votVoices))
-                                    {
-                                        // This condition checks for a voice type we're patching - store ALL VOT voices
-                                        conditionsToPatch.Add((condition, checkedVoice.EditorID, votVoices));
-                                        responseNeedsPatching = true;
-                                    }
-                                }
-                            }
-                        }
-                        
-                        // Second pass: add VOT voice conditions if needed
-                        if (responseNeedsPatching)
-                        {
-                            if (!topicModified)
-                            {
-                                topicOverride = state.PatchMod.DialogTopics.GetOrAddAsOverride(dialogTopic);
-                                topicModified = true;
-                                
-                                // GetOrAddAsOverride creates an empty override, so we need to copy the responses
-                                if (topicOverride.Responses.Count == 0 && dialogTopic.Responses.Count > 0)
-                                {
-                                    foreach (var resp in dialogTopic.Responses)
-                                    {
-                                        topicOverride.Responses.Add(resp.DeepCopy());
-                                    }
-                                }
-                            }
-                            
-                            // Get the response to modify from our override
-                            if (responseIndex < topicOverride!.Responses.Count)
-                            {
-                                var responseToModify = topicOverride.Responses[responseIndex];
-                                
-                                // Add new conditions for ALL VOT voice variants
-                                foreach (var (originalCondition, voiceEditorId, votVoices) in conditionsToPatch)
-                                {
-                                    int insertIndex = -1;
-                                    for (int i = responseToModify.Conditions.Count - 1; i >= 0; i--)
-                                    {
-                                        if (responseToModify.Conditions[i].Data is IGetIsVoiceTypeConditionDataGetter vc)
-                                        {
-                                            if (state.LinkCache.TryResolve<IVoiceTypeGetter>(vc.VoiceTypeOrList.Link.FormKey, out var v) &&
-                                                v.EditorID == voiceEditorId)
-                                            {
-                                                insertIndex = i + 1;
-                                                break;
-                                            }
-                                        }
-                                    }
-                                    
-                                    if (insertIndex >= 0)
-                                    {
-                                        foreach (var votVoice in votVoices)
-                                        {
-                                            var newCondition = new ConditionFloat();
-                                            newCondition.CompareOperator = originalCondition.CompareOperator;
-                                            newCondition.Flags = originalCondition.Flags | Condition.Flag.OR;
-                                            newCondition.ComparisonValue = 1.0f;
-                                            
-                                            // Set up the GetIsVoiceType condition data
-                                            var voiceConditionData = new GetIsVoiceTypeConditionData();
-                                            voiceConditionData.VoiceTypeOrList.Link.SetTo(votVoice);
-                                            voiceConditionData.RunOnType = (originalCondition.Data as IGetIsVoiceTypeConditionDataGetter)?.RunOnType ?? Condition.RunOnType.Subject;
-                                            newCondition.Data = voiceConditionData;
-                                            
-                                            responseToModify.Conditions.Insert(insertIndex, newCondition);
-                                            insertIndex++;
-                                        }
-                                    }
-                                    else
-                                    {
-                                        Console.WriteLine($"   -> WARNING: Could not find original condition for {voiceEditorId} in response");
-                                    }
-                                }
-                            }
-                            else
-                            {
-                                Console.WriteLine($"   -> WARNING: Response index {responseIndex} out of bounds for override with {topicOverride!.Responses.Count} responses");
-                            }
-                        }
-                        
-                        responseIndex++;
-                    }
+                    PatchDialogueTopic(state, dialogTopic, resolvedVoiceMappings);
                 }
             }
         }
