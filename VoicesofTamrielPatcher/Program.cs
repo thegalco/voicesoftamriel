@@ -18,6 +18,10 @@ namespace VoicesofTamrielPatcher
         [Tooltip("The percentage chance (0-100) that a matching NPC will receive a VOT voice when randomization is enabled")]
         [SettingName("Randomization Chance (%)")]
         public int RandomizationChance { get; set; } = 50;
+
+        [Tooltip("When enabled, automatically patches supported mods to work with VOT voices")]
+        [SettingName("Patch Supported Mods (Do not disable unless you know what you're doing)")]
+        public bool PatchSupportedMods { get; set; } = true;
     }
 
     public class Program
@@ -48,21 +52,10 @@ namespace VoicesofTamrielPatcher
                 { "MaleCommonerAccented", new List<string> { "VOT_MaleCommonerAccented01" } },
                 { "MaleDarkElf", new List<string> { "VOT_MaleDarkElf01" } },
                 { "MaleBrute", new List<string> { "VOT_MaleBrute01" }},
-                { "MaleEventoned", new List<string> { "VOT_MaleEventoned01" } },
-                { "MaleEventonedAccented", new List<string> { "VOT_MaleEventonedAccented01" } },
-                // { "MaleKhajiit", new List<string> { "VOT_MaleKhajiit01" } },
-                // { "MaleArgonian", new List<string> { "VOT_MaleArgonian01" } },
-                // { "MaleOrc", new List<string> { "VOT_MaleOrc01", "VOT_MaleOrc02" } },
-                // { "MaleNord", new List<string> { "VOT_MaleNord01", "VOT_MaleNord02" } },
-                // { "MaleBandit", new List<string> { "VOT_MaleBandit01", "VOT_MaleBandit02" } },
-                // Female voices
-                // { "FemaleCommoner", new List<string> { "VOT_FemaleCommoner01", "VOT_FemaleCommoner02" } },
-                // { "FemaleArgonian", new List<string> { "VOT_FemaleArgonian01" } },
+                { "MaleEvenToned", new List<string> { "VOT_MaleEventoned01" } },
+                { "MaleEvenTonedAccented", new List<string> { "VOT_MaleEventonedAccented01" } },
                 { "FemaleNord", new List<string> { "VOT_FemaleNord02" } },
-                { "FemaleDarkElf", new List<string> { "VOT_FemaleDarkElf01" } },
-                // { "FemaleBandit", new List<string> { "VOT_FemaleBandit01", "VOT_FemaleBandit02" } },
-                // { "FemaleKhajiit", new List<string> { "VOT_FemaleKhajiit01"} },
-                // { "FemaleOrc", new List<string> { "VOT_FemaleOrc01", "VOT_FemaleOrc02" } },
+                { "FemaleDarkElf", new List<string> { "VOT_FemaleDarkElf01" } }
             };
             // --- End of Configuration ---
 
@@ -116,14 +109,6 @@ namespace VoicesofTamrielPatcher
                     continue;
                 }
                 
-                // // Skip NPCs from DLCs (Dawnguard, Hearthfire, Dragonborn)
-                // if (npc.FormKey.ModKey.ToString().StartsWith("Dawnguard", StringComparison.OrdinalIgnoreCase) ||
-                //     npc.FormKey.ModKey.ToString().StartsWith("HearthFires", StringComparison.OrdinalIgnoreCase) ||
-                //     npc.FormKey.ModKey.ToString().StartsWith("Dragonborn", StringComparison.OrdinalIgnoreCase))
-                // {
-                //     continue;
-                // }
-                
                 // Skip Creation Club content (EditorID starts with "cc" or "DLC")
                 if (npc.EditorID != null && 
                     (npc.EditorID.StartsWith("cc", StringComparison.OrdinalIgnoreCase) ||
@@ -176,11 +161,159 @@ namespace VoicesofTamrielPatcher
                 }
             }
             
-            // Step 3: Print the final summary.
+            // Step 3: Patch supported mods if enabled
+            if (Settings.Value.PatchSupportedMods)
+            {
+                Console.WriteLine("\nChecking for supported mods to patch...");
+                PatchLinesExpansions(state, resolvedVoiceMappings);
+            }
+            
+            // Step 4: Print the final summary.
             Console.WriteLine("\n--- Voice Patcher Summary ---");
             Console.WriteLine($"Total NPCs patched: {patchedNpcCount}");
             Console.WriteLine($"Total NPCs kept with original voice: {keptNpcCount}");
             Console.WriteLine("-----------------------------");
+        }
+
+        private static bool IsModInLoadOrder(IPatcherState<ISkyrimMod, ISkyrimModGetter> state, string modName)
+        {
+            return state.LoadOrder.Any(mod => 
+                string.Equals(mod.Value.ModKey.FileName.String, modName, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static void PatchLinesExpansions(
+            IPatcherState<ISkyrimMod, ISkyrimModGetter> state, 
+            Dictionary<string, List<IVoiceTypeGetter>> resolvedVoiceMappings)
+        {
+            // Array of supported mods to patch
+            string[] supportedMods = new[] 
+            {
+                "Bandit Lines Expansion.esp",
+                "DarkElfVoicesForBandits.esp",
+                "Civil War Lines Expansion.esp",
+                "Brawl Lines Expansion.esp",
+                "Vampire Lines Expansion.esp",
+                "Forsworn and Thalmor Lines Expansion.esp"
+            };
+            
+            var modsToProcess = supportedMods.Where(mod => IsModInLoadOrder(state, mod)).ToList();
+            
+            if (!modsToProcess.Any())
+            {
+                Console.WriteLine(" -> No supported mods found in load order. Skipping dialog patching.");
+                return;
+            }
+            
+            Console.WriteLine($" -> Found {modsToProcess.Count} supported mod(s) to patch: {string.Join(", ", modsToProcess)}");
+
+            foreach (var dialogTopic in state.LoadOrder.PriorityOrder.DialogTopic().WinningOverrides())
+            {
+                // Check if this dialog topic belongs to any of the mods we're processing
+                if (modsToProcess.Any(mod => dialogTopic.FormKey.ModKey.FileName.String.Equals(mod, StringComparison.OrdinalIgnoreCase)))
+                {
+                    bool topicModified = false;
+                    DialogTopic? topicOverride = null;
+                    
+                    int responseIndex = 0;
+                    foreach (var response in dialogTopic.Responses)
+                    {
+                        bool responseNeedsPatching = false;
+                        List<(IConditionGetter condition, string voiceEditorId, List<IVoiceTypeGetter> votVoices)> conditionsToPatch = new();
+                        
+                        // First pass: identify conditions that need patching
+                        foreach (var condition in response.Conditions)
+                        {
+                            if (condition.Data is IGetIsVoiceTypeConditionDataGetter voiceCondition)
+                            {
+                                // Try to resolve the voice type being checked
+                                if (state.LinkCache.TryResolve<IVoiceTypeGetter>(voiceCondition.VoiceTypeOrList.Link.FormKey, out var checkedVoice) && 
+                                    checkedVoice.EditorID != null)
+                                {
+                                    if (resolvedVoiceMappings.TryGetValue(checkedVoice.EditorID, out var votVoices))
+                                    {
+                                        // This condition checks for a voice type we're patching - store ALL VOT voices
+                                        conditionsToPatch.Add((condition, checkedVoice.EditorID, votVoices));
+                                        responseNeedsPatching = true;
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // Second pass: add VOT voice conditions if needed
+                        if (responseNeedsPatching)
+                        {
+                            if (!topicModified)
+                            {
+                                topicOverride = state.PatchMod.DialogTopics.GetOrAddAsOverride(dialogTopic);
+                                topicModified = true;
+                                
+                                // GetOrAddAsOverride creates an empty override, so we need to copy the responses
+                                if (topicOverride.Responses.Count == 0 && dialogTopic.Responses.Count > 0)
+                                {
+                                    foreach (var resp in dialogTopic.Responses)
+                                    {
+                                        topicOverride.Responses.Add(resp.DeepCopy());
+                                    }
+                                }
+                            }
+                            
+                            // Get the response to modify from our override
+                            if (responseIndex < topicOverride!.Responses.Count)
+                            {
+                                var responseToModify = topicOverride.Responses[responseIndex];
+                                
+                                // Add new conditions for ALL VOT voice variants
+                                foreach (var (originalCondition, voiceEditorId, votVoices) in conditionsToPatch)
+                                {
+                                    int insertIndex = -1;
+                                    for (int i = responseToModify.Conditions.Count - 1; i >= 0; i--)
+                                    {
+                                        if (responseToModify.Conditions[i].Data is IGetIsVoiceTypeConditionDataGetter vc)
+                                        {
+                                            if (state.LinkCache.TryResolve<IVoiceTypeGetter>(vc.VoiceTypeOrList.Link.FormKey, out var v) &&
+                                                v.EditorID == voiceEditorId)
+                                            {
+                                                insertIndex = i + 1;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    
+                                    if (insertIndex >= 0)
+                                    {
+                                        foreach (var votVoice in votVoices)
+                                        {
+                                            var newCondition = new ConditionFloat();
+                                            newCondition.CompareOperator = originalCondition.CompareOperator;
+                                            newCondition.Flags = originalCondition.Flags | Condition.Flag.OR;
+                                            newCondition.ComparisonValue = 1.0f;
+                                            
+                                            // Set up the GetIsVoiceType condition data
+                                            var voiceConditionData = new GetIsVoiceTypeConditionData();
+                                            voiceConditionData.VoiceTypeOrList.Link.SetTo(votVoice);
+                                            voiceConditionData.RunOnType = (originalCondition.Data as IGetIsVoiceTypeConditionDataGetter)?.RunOnType ?? Condition.RunOnType.Subject;
+                                            newCondition.Data = voiceConditionData;
+                                            
+                                            responseToModify.Conditions.Insert(insertIndex, newCondition);
+                                            insertIndex++;
+                                        }
+                                    }
+                                    else
+                                    {
+                                        Console.WriteLine($"   -> WARNING: Could not find original condition for {voiceEditorId} in response");
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                Console.WriteLine($"   -> WARNING: Response index {responseIndex} out of bounds for override with {topicOverride!.Responses.Count} responses");
+                            }
+                        }
+                        
+                        responseIndex++;
+                    }
+                }
+            }
         }
     }
 }
