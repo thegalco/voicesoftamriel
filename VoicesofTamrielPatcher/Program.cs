@@ -149,8 +149,9 @@ namespace VoicesofTamrielPatcher
 
                         if (shouldApplyVoice && targetVoice != null)
                         {
-                            var npcOverride = state.PatchMod.Npcs.GetOrAddAsOverride(npc);
+                            var npcOverride = npc.DeepCopy();
                             npcOverride.Voice.SetTo(targetVoice);
+                            state.PatchMod.Npcs.Set(npcOverride);
                             patchedNpcCount++;
                         }
                         else
