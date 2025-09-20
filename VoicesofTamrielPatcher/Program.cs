@@ -22,6 +22,10 @@ namespace VoicesofTamrielPatcher
         [Tooltip("When enabled, automatically patches supported mods to work with VOT voices")]
         [SettingName("Patch Supported Mods (Do not disable unless you know what you're doing)")]
         public bool PatchSupportedMods { get; set; } = true;
+
+        [Tooltip("List of NPC Editor IDs to skip. Add NPCs you don't want to have their voices changed, one per line.")]
+        [SettingName("NPC Blacklist")]
+        public List<string> NpcBlacklist { get; set; } = new List<string>();
     }
 
     public class Program
@@ -48,20 +52,29 @@ namespace VoicesofTamrielPatcher
             var voiceMappings = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase)
             {
                 // Male voices
+                { "MaleBandit", new List<string> { "VOT_MaleBandit01" } },
                 { "MaleCommoner", new List<string> { "VOT_MaleCommoner01" } },
                 { "MaleCommonerAccented", new List<string> { "VOT_MaleCommonerAccented01" } },
                 { "MaleDarkElf", new List<string> { "VOT_MaleDarkElf01" } },
                 { "MaleBrute", new List<string> { "VOT_MaleBrute01" }},
                 { "MaleEvenToned", new List<string> { "VOT_MaleEventoned01" } },
                 { "MaleEvenTonedAccented", new List<string> { "VOT_MaleEventonedAccented01" } },
+                { "MaleGuard", new List<string> { "VOT_MaleGuard01" } },
+                { "MaleSlyCynical", new List<string> { "VOT_MaleSlyCynical01" } },
+                { "MaleOldKindly", new List<string> { "VOT_MaleOldKindly01" } },
+                { "MaleElfHaughty", new List<string> { "VOT_MaleElfHaughty01" } },
+                { "MaleYoungEager", new List<string> { "VOT_MaleYoungEager01" } },
+                // Female voices
                 { "FemaleNord", new List<string> { "VOT_FemaleNord02" } },
-                { "FemaleDarkElf", new List<string> { "VOT_FemaleDarkElf01" } }
+                { "FemaleDarkElf", new List<string> { "VOT_FemaleDarkElf01" } },
+                { "FemaleChild", new List<string> { "VOT_FemaleChild01" } }
             };
             // --- End of Configuration ---
 
             var random = new Random();
             int patchedNpcCount = 0;
             int keptNpcCount = 0;
+            int blacklistedNpcCount = 0;
 
             // Step 1: Resolve all target voice strings into actual voice records upfront.
             var resolvedVoiceMappings = new Dictionary<string, List<IVoiceTypeGetter>>(StringComparer.OrdinalIgnoreCase);
@@ -110,10 +123,21 @@ namespace VoicesofTamrielPatcher
                 }
                 
                 // Skip Creation Club content (EditorID starts with "cc" or "DLC")
-                if (npc.EditorID != null && 
+                if (npc.EditorID != null &&
                     (npc.EditorID.StartsWith("cc", StringComparison.OrdinalIgnoreCase) ||
                      npc.EditorID.StartsWith("DLC", StringComparison.OrdinalIgnoreCase)))
                 {
+                    continue;
+                }
+
+                // Skip blacklisted NPCs
+                if (Settings.Value.NpcBlacklist != null &&
+                    Settings.Value.NpcBlacklist.Count > 0 &&
+                    npc.EditorID != null &&
+                    Settings.Value.NpcBlacklist.Any(blacklisted =>
+                        string.Equals(blacklisted, npc.EditorID, StringComparison.OrdinalIgnoreCase)))
+                {
+                    blacklistedNpcCount++;
                     continue;
                 }
 
@@ -176,6 +200,7 @@ namespace VoicesofTamrielPatcher
             Console.WriteLine("\n--- Voice Patcher Summary ---");
             Console.WriteLine($"Total NPCs patched: {patchedNpcCount}");
             Console.WriteLine($"Total NPCs kept with original voice: {keptNpcCount}");
+            Console.WriteLine($"Total NPCs skipped (blacklisted): {blacklistedNpcCount}");
             Console.WriteLine("-----------------------------");
         }
 
